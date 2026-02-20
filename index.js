@@ -1,100 +1,88 @@
-import "dotenv/config";
-import {
+const {
   Client,
   GatewayIntentBits,
-  Events,
+  SlashCommandBuilder,
+  Routes,
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle,
   ActionRowBuilder,
-  EmbedBuilder,
-  REST,
-  Routes,
-  SlashCommandBuilder
-} from "discord.js";
+  InteractionType
+} = require("discord.js");
+
+const { REST } = require("@discordjs/rest");
+
+const client = new Client({
+  intents: [GatewayIntentBits.Guilds]
+});
 
 const TOKEN = process.env.DISCORD_TOKEN;
-const CLIENT_ID = process.env.DISCORD_CLIENT_ID;
-const GUILD_ID = process.env.DISCORD_GUILD_ID;
+const CLIENT_ID = "DEINE_CLIENT_ID_HIER"; // aus Discord Developer Portal
 
-if (!TOKEN) throw new Error("DISCORD_TOKEN fehlt");
-
+// Slash Command registrieren
 const commands = [
   new SlashCommandBuilder()
     .setName("text")
-    .setDescription("Schreibe eine Nachricht über ein Formular")
-    .toJSON()
-];
+    .setDescription("Schreibe eine Nachricht als Bot")
+].map(cmd => cmd.toJSON());
 
-// ---- DEPLOY MODE: einmalig Commands registrieren ----
-async function deployCommands() {
-  if (!CLIENT_ID || !GUILD_ID) {
-    throw new Error("DISCORD_CLIENT_ID oder DISCORD_GUILD_ID fehlt");
+const rest = new REST({ version: "10" }).setToken(TOKEN);
+
+(async () => {
+  try {
+    await rest.put(
+      Routes.applicationCommands(CLIENT_ID),
+      { body: commands }
+    );
+    console.log("✅ Slash Command /text registriert");
+  } catch (error) {
+    console.error(error);
   }
-  const rest = new REST({ version: "10" }).setToken(TOKEN);
-  console.log("⏳ Registriere /text …");
-  await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), {
-    body: commands
-  });
-  console.log("✅ Fertig! /text ist im Server verfügbar.");
-}
+})();
 
-// Wenn gestartet mit: node index.js deploy
-if (process.argv[2] === "deploy") {
-  deployCommands().catch((e) => {
-    console.error(e);
-    process.exit(1);
-  });
-} else {
-  // ---- BOT MODE: normal laufen ----
-  const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+// Interaktionen
+client.on("interactionCreate", async interaction => {
 
-  client.once(Events.ClientReady, () => {
-    console.log(`✅ Eingeloggt als ${client.user.tag}`);
-  });
+  // Slash Command
+  if (interaction.isChatInputCommand()) {
+    if (interaction.commandName === "text") {
 
-  client.on(Events.InteractionCreate, async (interaction) => {
-    try {
-      // /text -> Modal öffnen
-      if (interaction.isChatInputCommand() && interaction.commandName === "text") {
-        const modal = new ModalBuilder()
-          .setCustomId("text_modal")
-          .setTitle("Nachricht senden");
+      const modal = new ModalBuilder()
+        .setCustomId("textModal")
+        .setTitle("Bot-Nachricht");
 
-        const input = new TextInputBuilder()
-          .setCustomId("text_content")
-          .setLabel("Welche Nachricht soll der Bot senden?")
-          .setStyle(TextInputStyle.Paragraph)
-          .setRequired(true)
-          .setMaxLength(1500);
+      const textInput = new TextInputBuilder()
+        .setCustomId("botText")
+        .setLabel("Was soll der Bot schreiben?")
+        .setStyle(TextInputStyle.Paragraph)
+        .setRequired(true);
 
-        modal.addComponents(new ActionRowBuilder().addComponents(input));
-        return interaction.showModal(modal);
-      }
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(textInput)
+      );
 
-      // Modal submit -> im selben Channel posten
-      if (interaction.isModalSubmit() && interaction.customId === "text_modal") {
-        const content = interaction.fields.getTextInputValue("text_content");
-
-        await interaction.reply({ content: "✅ Gesendet.", ephemeral: true });
-
-        // Kasten (Embed)
-        const embed = new EmbedBuilder()
-          .setTitle("Neue Nachricht")
-          .setDescription(content)
-          .setTimestamp();
-
-        await interaction.channel.send({ embeds: [embed] });
-      }
-    } catch (err) {
-      console.error(err);
-      if (interaction.isRepliable()) {
-        const payload = { content: "❌ Fehler im Bot.", ephemeral: true };
-        if (interaction.replied || interaction.deferred) await interaction.followUp(payload);
-        else await interaction.reply(payload);
-      }
+      await interaction.showModal(modal);
     }
-  });
+  }
 
-  client.login(TOKEN);
-}
+  // Modal absenden
+  if (interaction.type === InteractionType.ModalSubmit) {
+    if (interaction.customId === "textModal") {
+
+      const text = interaction.fields.getTextInputValue("botText");
+
+      await interaction.channel.send(text);
+
+      await interaction.reply({
+        content: "✅ Nachricht gesendet!",
+        ephemeral: true
+      });
+    }
+  }
+});
+
+client.once("ready", () => {
+  console.log(`🤖 Bot online als ${client.user.tag}`);
+});
+
+client.login(TOKEN);
