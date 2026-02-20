@@ -1,213 +1,100 @@
-const {
+import "dotenv/config";
+import {
   Client,
   GatewayIntentBits,
-  ActionRowBuilder,
-  StringSelectMenuBuilder,
+  Events,
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle,
+  ActionRowBuilder,
   EmbedBuilder,
-  ButtonBuilder,
-  ButtonStyle,
-} = require("discord.js");
+  REST,
+  Routes,
+  SlashCommandBuilder
+} from "discord.js";
 
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-  ],
-});
+const TOKEN = process.env.DISCORD_TOKEN;
+const CLIENT_ID = process.env.DISCORD_CLIENT_ID;
+const GUILD_ID = process.env.DISCORD_GUILD_ID;
 
-// 🔐 IDs
-const STAFF_ROLE_ID = "1473195959247831170";
-const ORDER_INPUT_CHANNEL_ID = "1473039686355390525";
-const STAFF_NOTIFY_CHANNEL_ID = "1474089272054120580";
+if (!TOKEN) throw new Error("DISCORD_TOKEN fehlt");
 
-// 🍷 Weine (nur normale Buchstaben)
-const WINES = [
-  { key: "blanc", label: "44s No I - Blanc Elegance" },
-  { key: "rose", label: "44s No II - Rose Prive" },
-  { key: "rouge", label: "44s No III - Rouge Signature" },
-  { key: "reserve", label: "44s No IV - Reserve Noire" },
-  { key: "founder", label: "44s Founder Edition" },
+const commands = [
+  new SlashCommandBuilder()
+    .setName("text")
+    .setDescription("Schreibe eine Nachricht über ein Formular")
+    .toJSON()
 ];
 
-const wineByKey = (key) => WINES.find(w => w.key === key);
-const isStaff = (member) => member?.roles?.cache?.has(STAFF_ROLE_ID);
-
-client.once("ready", () => {
-  console.log(`✅ Bot online als ${client.user.tag}`);
-});
-
-// 🧾 Bestell-Panel
-client.on("messageCreate", async (message) => {
-  if (message.author.bot || !message.guild) return;
-
-  if (message.content === "!bestellen") {
-    if (message.channel.id !== ORDER_INPUT_CHANNEL_ID) {
-      return message.reply("❌ Bitte nur im Bestell-Channel benutzen.");
-    }
-
-    const select = new StringSelectMenuBuilder()
-      .setCustomId("order_select")
-      .setPlaceholder("Wein auswaehlen")
-      .addOptions(WINES.map(w => ({ label: w.label, value: w.key })));
-
-    const row = new ActionRowBuilder().addComponents(select);
-
-    const embed = new EmbedBuilder()
-      .setTitle("44s Bestellsystem")
-      .setDescription("Wein auswaehlen → Menge eingeben.");
-
-    return message.channel.send({ embeds: [embed], components: [row] });
+// ---- DEPLOY MODE: einmalig Commands registrieren ----
+async function deployCommands() {
+  if (!CLIENT_ID || !GUILD_ID) {
+    throw new Error("DISCORD_CLIENT_ID oder DISCORD_GUILD_ID fehlt");
   }
+  const rest = new REST({ version: "10" }).setToken(TOKEN);
+  console.log("⏳ Registriere /text …");
+  await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), {
+    body: commands
+  });
+  console.log("✅ Fertig! /text ist im Server verfügbar.");
+}
 
-  if (message.content === "!ping") message.reply("pong 🏓");
-});
+// Wenn gestartet mit: node index.js deploy
+if (process.argv[2] === "deploy") {
+  deployCommands().catch((e) => {
+    console.error(e);
+    process.exit(1);
+  });
+} else {
+  // ---- BOT MODE: normal laufen ----
+  const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
-// 🎛 Interactions
-client.on("interactionCreate", async (interaction) => {
-  try {
-    // 🍷 Wein gewählt
-    if (interaction.isStringSelectMenu() && interaction.customId === "order_select") {
-      const wine = wineByKey(interaction.values[0]);
-      if (!wine) return;
+  client.once(Events.ClientReady, () => {
+    console.log(`✅ Eingeloggt als ${client.user.tag}`);
+  });
 
-      const modal = new ModalBuilder()
-        .setCustomId(`qty|${wine.key}`)
-        .setTitle("Menge eingeben");
+  client.on(Events.InteractionCreate, async (interaction) => {
+    try {
+      // /text -> Modal öffnen
+      if (interaction.isChatInputCommand() && interaction.commandName === "text") {
+        const modal = new ModalBuilder()
+          .setCustomId("text_modal")
+          .setTitle("Nachricht senden");
 
-      const qtyInput = new TextInputBuilder()
-        .setCustomId("qty")
-        .setLabel("Wie viele Flaschen?")
-        .setStyle(TextInputStyle.Short)
-        .setRequired(true);
+        const input = new TextInputBuilder()
+          .setCustomId("text_content")
+          .setLabel("Welche Nachricht soll der Bot senden?")
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(true)
+          .setMaxLength(1500);
 
-      modal.addComponents(new ActionRowBuilder().addComponents(qtyInput));
-      return interaction.showModal(modal);
-    }
-
-    // 📦 Menge eingegeben → Bestellung erstellen
-    if (interaction.isModalSubmit() && interaction.customId.startsWith("qty|")) {
-      const wineKey = interaction.customId.split("|")[1];
-      const wine = wineByKey(wineKey);
-      const qty = parseInt(interaction.fields.getTextInputValue("qty"), 10);
-
-      if (!wine || !qty || qty <= 0) {
-        return interaction.reply({ content: "❌ Ungueltige Menge.", ephemeral: true });
+        modal.addComponents(new ActionRowBuilder().addComponents(input));
+        return interaction.showModal(modal);
       }
 
-      if (wineKey === "founder" && qty > 1) {
-        return interaction.reply({ content: "❌ Founder Edition max. 1 Flasche.", ephemeral: true });
+      // Modal submit -> im selben Channel posten
+      if (interaction.isModalSubmit() && interaction.customId === "text_modal") {
+        const content = interaction.fields.getTextInputValue("text_content");
+
+        await interaction.reply({ content: "✅ Gesendet.", ephemeral: true });
+
+        // Kasten (Embed)
+        const embed = new EmbedBuilder()
+          .setTitle("Neue Nachricht")
+          .setDescription(content)
+          .setTimestamp();
+
+        await interaction.channel.send({ embeds: [embed] });
       }
-
-      // 🔢 Bestellnummer
-      const orderId = Math.floor(Math.random() * 1_000_000_001);
-
-      const embed = new EmbedBuilder()
-        .setTitle("🛒 Neue Bestellung")
-        .addFields(
-          { name: "Bestellnummer", value: `#${orderId}`, inline: true },
-          { name: "Status", value: "OFFEN", inline: true },
-          { name: "Kunde", value: `${interaction.user}`, inline: true },
-          { name: "Wein", value: wine.label, inline: true },
-          { name: "Menge", value: `${qty}`, inline: true }
-        )
-        .setTimestamp();
-
-      const doneBtn = new ButtonBuilder()
-        .setCustomId(`done|${orderId}|${interaction.user.id}`)
-        .setLabel("Erledigt")
-        .setStyle(ButtonStyle.Success);
-
-      const rejectBtn = new ButtonBuilder()
-        .setCustomId(`reject|${orderId}|${interaction.user.id}`)
-        .setLabel("Ablehnen")
-        .setStyle(ButtonStyle.Danger);
-
-      const row = new ActionRowBuilder().addComponents(doneBtn, rejectBtn);
-
-      const staffChannel = await client.channels.fetch(STAFF_NOTIFY_CHANNEL_ID);
-      await staffChannel.send({
-        content: `<@&${STAFF_ROLE_ID}>`,
-        embeds: [embed],
-        components: [row],
-      });
-
-      return interaction.reply({ content: "✅ Bestellung gesendet!", ephemeral: true });
-    }
-
-    // ✅ ERLEDIGT
-    if (interaction.isButton() && interaction.customId.startsWith("done|")) {
-      if (!isStaff(interaction.member)) {
-        return interaction.reply({ content: "❌ Nur Mitarbeiter.", ephemeral: true });
+    } catch (err) {
+      console.error(err);
+      if (interaction.isRepliable()) {
+        const payload = { content: "❌ Fehler im Bot.", ephemeral: true };
+        if (interaction.replied || interaction.deferred) await interaction.followUp(payload);
+        else await interaction.reply(payload);
       }
-
-      const [, orderId, userId] = interaction.customId.split("|");
-
-      const updated = EmbedBuilder.from(interaction.message.embeds[0])
-        .spliceFields(1, 1, { name: "Status", value: "ERLEDIGT ✅", inline: true })
-        .setFooter({ text: `Erledigt von ${interaction.user.tag}` });
-
-      await interaction.update({ embeds: [updated], components: [] });
-
-      try {
-        const user = await client.users.fetch(userId);
-        await user.send(
-          `✅ Ihre Bestellung #${orderId} wurde angenommen.\n` +
-          "Ein Mitarbeiter wird sich in Kürze bei Ihnen melden."
-        );
-      } catch {}
     }
+  });
 
-    // ❌ ABLEHNEN → Grund abfragen
-    if (interaction.isButton() && interaction.customId.startsWith("reject|")) {
-      if (!isStaff(interaction.member)) {
-        return interaction.reply({ content: "❌ Nur Mitarbeiter.", ephemeral: true });
-      }
-
-      const [, orderId, userId] = interaction.customId.split("|");
-
-      const modal = new ModalBuilder()
-        .setCustomId(`reject_reason|${orderId}|${userId}`)
-        .setTitle("Bestellung ablehnen");
-
-      const reason = new TextInputBuilder()
-        .setCustomId("reason")
-        .setLabel("Grund")
-        .setStyle(TextInputStyle.Paragraph)
-        .setRequired(true);
-
-      modal.addComponents(new ActionRowBuilder().addComponents(reason));
-      return interaction.showModal(modal);
-    }
-
-    // ❌ Ablehnung bestätigen
-    if (interaction.isModalSubmit() && interaction.customId.startsWith("reject_reason|")) {
-      if (!isStaff(interaction.member)) return;
-
-      const [, orderId, userId] = interaction.customId.split("|");
-      const reason = interaction.fields.getTextInputValue("reason");
-
-      const updated = EmbedBuilder.from(interaction.message.embeds[0])
-        .spliceFields(1, 1, { name: "Status", value: "ABGELEHNT ❌", inline: true })
-        .addFields({ name: "Grund", value: reason });
-
-      await interaction.update({ embeds: [updated], components: [] });
-
-      try {
-        const user = await client.users.fetch(userId);
-        await user.send(
-          `❌ Ihre Bestellung #${orderId} konnte leider nicht bearbeitet werden.\n` +
-          "Grund: " + reason
-        );
-      } catch {}
-    }
-
-  } catch (err) {
-    console.error(err);
-  }
-});
-
-client.login(process.env.DISCORD_TOKEN);
+  client.login(TOKEN);
+}
