@@ -1,14 +1,12 @@
 {
-  "name": "discord-text-modal-bot",
+  "name": "discord-bot",
   "version": "1.0.0",
-  "type": "module",
   "main": "index.js",
+  "type": "commonjs",
   "scripts": {
-    "start": "node index.js",
-    "deploy": "node index.js deploy"
+    "start": "node index.js"
   },
   "dependencies": {
-    "discord.js": "^14.15.3",
-    "dotenv": "^16.4.5"
+    "discord.js": "^14.14.1"
   }
 }
