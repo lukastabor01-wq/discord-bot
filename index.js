@@ -1,4 +1,11 @@
-const { Client, GatewayIntentBits } = require("discord.js");
+const {
+  Client,
+  GatewayIntentBits,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  EmbedBuilder
+} = require("discord.js");
 
 const client = new Client({
   intents: [
@@ -8,33 +15,75 @@ const client = new Client({
   ]
 });
 
+const CLIP_URL =
+  "https://cdn.discordapp.com/attachments/1475144172804636855/1475147494366384210/copy_FB303E9B-46C7-4B1A-9B7E-5D30AA53FBC7.mov";
+
 client.once("ready", () => {
-  console.log(`🤖 Eingeloggt als ${client.user.tag}`);
+  console.log(`🤖 Online als ${client.user.tag}`);
 });
 
 client.on("messageCreate", async (message) => {
   if (message.author.bot) return;
+  if (message.content.toLowerCase() !== "!münze") return;
 
-  if (message.content.toLowerCase() === "!münze") {
-    // Münzwurf-GIF
-    const coinGif = "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExZjV0cG1kdnJ6cGVjZGRlYWZkNmVjOXp1dGJybjU5dGJ2Y3J3aCZlcD12MV9naWZzX3NlYXJjaCZjdD1n/3o7TKDMPKsakcn9NU4/giphy.gif";
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId("kopf")
+      .setLabel("🪙 Kopf")
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId("zahl")
+      .setLabel("🪙 Zahl")
+      .setStyle(ButtonStyle.Primary)
+  );
 
-    await message.channel.send({
-      content: "🪙 **Münze wird geworfen...**",
-      files: [coinGif]
-    });
+  await message.channel.send({
+    content: "🪙 **Wähle Kopf oder Zahl**",
+    components: [row]
+  });
+});
 
-    // 2 Sekunden warten
-    setTimeout(() => {
-      const chance = Math.floor(Math.random() * 100) + 1;
+client.on("interactionCreate", async (interaction) => {
+  if (!interaction.isButton()) return;
 
-      if (chance <= 15) {
-        message.channel.send("🎉 **GEWONNEN!** Die Münze ist auf **Kopf** gelandet!");
-      } else {
-        message.channel.send("💀 **VERLOREN!** Die Münze ist auf **Zahl** gelandet.");
-      }
-    }, 2000);
-  }
+  const userChoice = interaction.customId; // kopf oder zahl
+  const result = Math.random() < 0.5 ? "kopf" : "zahl";
+  const gewonnen = userChoice === result;
+
+  // 1️⃣ Buttons entfernen + Bestätigung
+  await interaction.update({
+    content: `🪙 **Du hast ${userChoice.toUpperCase()} gewählt...**`,
+    components: []
+  });
+
+  // 2️⃣ Clip senden
+  await interaction.followUp({
+    content: "🎥 **Münze wird geworfen...**",
+    files: [CLIP_URL]
+  });
+
+  // 3️⃣ Ergebnis nach 2 Sekunden
+  setTimeout(async () => {
+    const embed = new EmbedBuilder()
+      .setTitle("🪙 Münz-Ergebnis")
+      .addFields(
+        { name: "Deine Wahl", value: userChoice.toUpperCase(), inline: true },
+        { name: "Ergebnis", value: result.toUpperCase(), inline: true }
+      )
+      .setTimestamp();
+
+    if (gewonnen) {
+      embed
+        .setColor(0x2ecc71)
+        .setDescription("🍾 **GEWONNEN! Glückwunsch!**");
+    } else {
+      embed
+        .setColor(0xe74c3c)
+        .setDescription("❌ **VERLOREN! Leider falsch geraten.**");
+    }
+
+    await interaction.followUp({ embeds: [embed] });
+  }, 2000);
 });
 
 client.login(process.env.TOKEN);
