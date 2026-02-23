@@ -1,5 +1,5 @@
 {
-  "name": "discord-bot",
+  "name": "44s-vinegards-bot",
   "version": "1.0.0",
   "main": "index.js",
   "type": "commonjs",
@@ -7,6 +7,7 @@
     "start": "node index.js"
   },
   "dependencies": {
-    "discord.js": "^14.14.1"
+    "discord.js": "^14.0.0",
+    "better-sqlite3": "^9.0.0"
   }
 }
